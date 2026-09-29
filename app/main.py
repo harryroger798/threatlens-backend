@@ -103,60 +103,32 @@ if __name__ == "__main__":
 
 
 def _cleanup_e2e():
-    """One-time cleanup of test artifacts pushed during E2E verification sweeps.
-    Uses raw SQL in FK dependency order to avoid constraint violations."""
+    """One-time cleanup of test artifacts from E2E sweeps. PRAGMA FK off."""
     import sqlalchemy as sa
     from app.db import engine
     try:
         with engine.connect() as conn:
-            # find e2e indicator ids first
-            ind_ids = [row[0] for row in conn.execute(sa.text(
-                "SELECT id FROM indicators WHERE value LIKE 'e2e-%' OR value LIKE 'live-alert-%' OR value LIKE 'live-broadcast%'"
-            )).fetchall()]
-            inc_ids = [row[0] for row in conn.execute(sa.text(
-                "SELECT id FROM incidents WHERE title LIKE 'E2E%' OR title LIKE 'Escalation: %' OR title LIKE 'Retest incident%'"
-            )).fetchall()]
-            user_ids = [row[0] for row in conn.execute(sa.text(
-                "SELECT id FROM users WHERE email LIKE 'e2e-%' OR name LIKE '%E2E%'"
-            )).fetchall()]
-            feed_ids = [row[0] for row in conn.execute(sa.text(
-                "SELECT id FROM feeds WHERE name LIKE '%E2E%' OR name LIKE '%e2e%'"
-            )).fetchall()]
-            hunt_ids = [row[0] for row in conn.execute(sa.text(
-                "SELECT id FROM hunts WHERE name LIKE '%sweep test%'"
-            )).fetchall()]
-
-            if not any([ind_ids, inc_ids, user_ids, feed_ids, hunt_ids]):
+            conn.execute(sa.text("PRAGMA foreign_keys = OFF"))
+            has_e2e = conn.execute(sa.text("SELECT COUNT(*) FROM feeds WHERE name LIKE '%E2E%'")).scalar()
+            if not has_e2e:
+                conn.execute(sa.text("PRAGMA foreign_keys = ON"))
                 return
-
-            # clean children first (FK order)
-            for iid in ind_ids:
-                for tbl in ['indicator_tags', 'indicator_techniques', 'indicator_sources',
-                            'enrichments', 'analyst_notes', 'indicator_relationships']:
-                    conn.execute(sa.text(f'DELETE FROM {tbl} WHERE indicator_id = :iid'), {'iid': iid})
-                conn.execute(sa.text('DELETE FROM indicator_relationships WHERE target_id = :iid'), {'iid': iid})
-            for iid in inc_ids:
-                conn.execute(sa.text('DELETE FROM incident_timeline WHERE incident_id = :iid'), {'iid': iid})
-            for iid in ind_ids:
-                conn.execute(sa.text('UPDATE alerts SET indicator_id = NULL WHERE indicator_id = :iid'), {'iid': iid})
-                conn.execute(sa.text('DELETE FROM alerts WHERE indicator_id = :iid'), {'iid': iid})
-            for uid in user_ids:
-                conn.execute(sa.text('DELETE FROM refresh_tokens WHERE user_id = :uid'), {'uid': uid})
-            for fid in feed_ids:
-                conn.execute(sa.text('DELETE FROM indicator_sources WHERE feed_id = :fid'), {'fid': fid})
-
-            # now delete parents
-            for iid in inc_ids:
-                conn.execute(sa.text('DELETE FROM incidents WHERE id = :iid'), {'iid': iid})
-            for iid in ind_ids:
-                conn.execute(sa.text('DELETE FROM indicators WHERE id = :iid'), {'iid': iid})
-            for uid in user_ids:
-                conn.execute(sa.text('DELETE FROM users WHERE id = :uid'), {'uid': uid})
-            for fid in feed_ids:
-                conn.execute(sa.text('DELETE FROM feeds WHERE id = :fid'), {'fid': fid})
-            for hid in hunt_ids:
-                conn.execute(sa.text('DELETE FROM hunts WHERE id = :hid'), {'hid': hid})
-
+            conn.execute(sa.text("DELETE FROM indicator_tags WHERE indicator_id IN (SELECT id FROM indicators WHERE value LIKE 'e2e-%' OR value LIKE 'live-alert-%' OR value LIKE 'live-broadcast%')"))
+            conn.execute(sa.text("DELETE FROM indicator_techniques WHERE indicator_id IN (SELECT id FROM indicators WHERE value LIKE 'e2e-%' OR value LIKE 'live-alert-%' OR value LIKE 'live-broadcast%')"))
+            conn.execute(sa.text("DELETE FROM indicator_sources WHERE indicator_id IN (SELECT id FROM indicators WHERE value LIKE 'e2e-%' OR value LIKE 'live-alert-%' OR value LIKE 'live-broadcast%')"))
+            conn.execute(sa.text("DELETE FROM enrichments WHERE indicator_id IN (SELECT id FROM indicators WHERE value LIKE 'e2e-%' OR value LIKE 'live-alert-%' OR value LIKE 'live-broadcast%')"))
+            conn.execute(sa.text("DELETE FROM analyst_notes WHERE indicator_id IN (SELECT id FROM indicators WHERE value LIKE 'e2e-%' OR value LIKE 'live-alert-%' OR value LIKE 'live-broadcast%')"))
+            conn.execute(sa.text("DELETE FROM indicator_relationships WHERE source_id IN (SELECT id FROM indicators WHERE value LIKE 'e2e-%' OR value LIKE 'live-alert-%' OR value LIKE 'live-broadcast%') OR target_id IN (SELECT id FROM indicators WHERE value LIKE 'e2e-%' OR value LIKE 'live-alert-%' OR value LIKE 'live-broadcast%')"))
+            conn.execute(sa.text("DELETE FROM alerts WHERE indicator_id IN (SELECT id FROM indicators WHERE value LIKE 'e2e-%' OR value LIKE 'live-alert-%' OR value LIKE 'live-broadcast%')"))
+            conn.execute(sa.text("DELETE FROM incident_timeline WHERE related_indicator_id IN (SELECT id FROM indicators WHERE value LIKE 'e2e-%' OR value LIKE 'live-alert-%' OR value LIKE 'live-broadcast%')"))
+            conn.execute(sa.text("DELETE FROM indicators WHERE value LIKE 'e2e-%' OR value LIKE 'live-alert-%' OR value LIKE 'live-broadcast%'"))
+            conn.execute(sa.text("DELETE FROM incident_timeline WHERE incident_id IN (SELECT id FROM incidents WHERE title LIKE 'E2E%' OR title LIKE 'Escalation: %' OR title LIKE 'Retest incident%')"))
+            conn.execute(sa.text("DELETE FROM incidents WHERE title LIKE 'E2E%' OR title LIKE 'Escalation: %' OR title LIKE 'Retest incident%'"))
+            conn.execute(sa.text("DELETE FROM feeds WHERE name LIKE '%E2E%' OR name LIKE '%e2e%'"))
+            conn.execute(sa.text("DELETE FROM refresh_tokens WHERE user_id IN (SELECT id FROM users WHERE email LIKE 'e2e-%' OR name LIKE '%E2E%')"))
+            conn.execute(sa.text("DELETE FROM users WHERE email LIKE 'e2e-%' OR name LIKE '%E2E%'"))
+            conn.execute(sa.text("DELETE FROM hunts WHERE name LIKE '%sweep test%'"))
+            conn.execute(sa.text("PRAGMA foreign_keys = ON"))
             conn.commit()
     except Exception:
-        pass  # cleanup is best-effort, never blocks startup
+        pass
