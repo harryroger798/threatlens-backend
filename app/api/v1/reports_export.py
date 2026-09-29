@@ -99,7 +99,7 @@ def export_stix(db: Session = Depends(get_db), ctx=Depends(rbac_permission(perms
                 min_score: int = 0, tlp_max: str | None = None, limit: int = 500):
     """STIX 2.1 bundle export. TLP handling is honoured: amber/red restricted
     markings are only included when explicitly requested."""
-    stmt = select(Indicator).options(joinedload(Indicator.tags, IndicatorTag.tag)).where(Indicator.status == "active", Indicator.severity_score >= min_score).limit(min(limit, 2000))
+    stmt = select(Indicator).options(joinedload(Indicator.tags, IndicatorTag.tag)).where(Indicator.status == "active", Indicator.severity_score >= min_score).order_by(Indicator.severity_score.desc(), Indicator.last_seen.desc()).limit(min(limit, 2000))
     rows = db.execute(stmt).unique().scalars().all()
     if tlp_max:
         order = {t: i for i, t in enumerate(TLP_VALUES)}
