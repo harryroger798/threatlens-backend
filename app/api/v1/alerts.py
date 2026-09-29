@@ -174,10 +174,10 @@ def patch_alert(alert_id: str, body: AlertPatchIn, db: Session = Depends(get_db)
             alert_ids=[alert.id],
             indicator_ids=[alert.indicator_id],
             containment_checklist=[
-                {\'text\': \'Isolate affected hosts\', \'done\': False},
-                {\'text\': \'Block indicators at perimeter\', \'done\': False},
-                {\'text\': \'Rotate exposed credentials\', \'done\': False},
-                {\'text\': \'Preserve forensic evidence\', \'done\': False},
+                {'text': 'Isolate affected hosts', 'done': False},
+                {'text': 'Block indicators at perimeter', 'done': False},
+                {'text': 'Rotate exposed credentials', 'done': False},
+                {'text': 'Preserve forensic evidence', 'done': False},
             ],
         )
         db.add(incident)
