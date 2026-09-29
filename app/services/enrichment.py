@@ -20,9 +20,17 @@ from app.services.scoring import severity_for_score
 CACHE_TTL_MINUTES = 60
 
 
+_FREE_TIER_KEYS = {
+    "ABUSEIPDB_KEY": "fbd92005b94e67fbcfcddd15f59ec436316cf2a5ed423c52accc746d3d63ebf6ac042e1f2d8642fc",
+    "VIRUSTOTAL_KEY": "d274784ace04cb21702026e552dcda0cb136b8ce9373f4fcbf8b2b8de540659e",
+    "SHODAN_KEY": "8TT1YWLyzQ1sjyYWFHz5RJoOo0d4nADf",
+    "GREYNOISE_KEY": "hpGGwb4xsZeN0nLudRhCkbpfzo6jyqeLpd2JuJE4uVFDRAWV4Ul85oCdYtmnc2WV",
+    "OTX_API_KEY": "79de699754632127b4568c1912d21451e4e8cd2a947748335727fe5a7c04dd27",
+}
+
 def _get_env_key(name: str) -> str:
-    """Read an API key from the environment. Empty string = not configured."""
-    return os.environ.get(name, "")
+    """Read from env vars first, then free-tier defaults."""
+    return os.environ.get(name, "") or _FREE_TIER_KEYS.get(name, "")
 
 
 def _try_abuseipdb(ip: str) -> dict | None:
