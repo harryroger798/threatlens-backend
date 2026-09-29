@@ -104,6 +104,14 @@ def search(
 ):
     """Full-text + faceted search across indicators. Sub-second over the
     canonical store; the same contract sits in front of Elasticsearch at scale."""
+    # ES seam: when ES_URL is configured, route to Elasticsearch; otherwise
+    # query the canonical store directly (same API contract, same result shape).
+    from app.core.config import settings as _settings
+    if _settings.ES_URL:
+        return _es_search_route(db, q=q, types=types, tags=tags, sources=sources,
+                                techniques=techniques, min_score=min_score,
+                                max_score=max_score, tlp=tlp, status=status, limit=limit)
+
     stmt = select(Indicator).options(joinedload(Indicator.sources), joinedload(Indicator.tags, IndicatorTag.tag))
     facets_applied = {}
     if q:
@@ -192,3 +200,50 @@ def attack_matrix(db: Session = Depends(get_db), ctx=Depends(rbac_permission(per
         for t in techniques
     ]
 
+
+
+def _es_search_route(db, **params):
+    """Route a search to Elasticsearch when configured. Falls back to the
+    canonical store on ES errors. Same response shape as the direct path."""
+    from app.services.es_search import build_es_query, ES_INDEX_NAME
+    import httpx
+    from app.core.config import settings as cfg
+    from fastapi import HTTPException, status as http_status
+
+    es_query = build_es_query(
+        q=params.get('q'), types=params.get('types'),
+        tags=params.get('tags'), sources=params.get('sources'),
+        techniques=params.get('techniques'),
+        min_score=params.get('min_score'), max_score=params.get('max_score'),
+        tlp=params.get('tlp'), status=params.get('status'),
+        limit=params.get('limit', 50),
+    )
+    try:
+        resp = httpx.post(
+            f"{cfg.ES_URL.rstrip('/')}/{ES_INDEX_NAME}/_search",
+            json=es_query, timeout=5,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+    except Exception:
+        # ES unreachable: fall through to canonical store
+        return _canonical_search(db, **params)
+
+    hits = payload.get('hits', {}).get('hits', [])
+    total = payload.get('hits', {}).get('total', {}).get('value', len(hits))
+    results = []
+    for hit in hits:
+        src = hit.get('_source', {})
+        results.append({
+            'id': src.get('id'), 'value': src.get('value'), 'type': src.get('type'),
+            'severity_score': src.get('severity_score', 0),
+            'severity': scoring.severity_for_score(src.get('severity_score', 0)),
+            'confidence': src.get('confidence', 0), 'tlp': src.get('tlp', 'amber'),
+            'status': src.get('status', 'active'), 'malware_family': src.get('malware_family'),
+            'description': (src.get('description') or '')[:180],
+            'internal_sightings': src.get('internal_sightings', 0),
+            'last_seen': src.get('last_seen'), 'sources': src.get('sources', []),
+            'tags': src.get('tags', []),
+        })
+    return {'query': params.get('q'), 'count': len(results), 'results': results,
+            'facet_counts': _facet_counts(db)}

@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     # Rate limiting (per principal)
     RATE_LIMIT_PER_MINUTE: int = 240
 
+    # Elasticsearch (optional; when set, search routes to ES)
+    ES_URL: str = ''
+
     # Feed polling defaults (seconds); each feed can override its own schedule
     FEED_POLL_INTERVAL_DEFAULT: int = 900
 

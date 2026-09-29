@@ -11,6 +11,7 @@ import random
 from datetime import datetime, timedelta, timezone
 
 import httpx
+from app.feeds.taxii21 import fetch_taxii21 as _fetch_taxii21
 
 TIMEOUT = 12.0
 
@@ -233,6 +234,7 @@ def fetch_reference(feed) -> list[dict]:
 
 
 ADAPTERS = {
+    "taxii21": _fetch_taxii21,
     "urlhaus": fetch_urlhaus,
     "feodo": fetch_feodo,
     "threatfox": fetch_threatfox,
