@@ -23,6 +23,7 @@ async def lifespan(app: FastAPI):
     from app.seed import run_seed
 
     run_seed()
+    _cleanup_e2e()
     loop = asyncio.get_running_loop()
     bus.bind_loop(loop)
     start_scheduler()
@@ -99,3 +100,32 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=False)
+
+
+def _cleanup_e2e():
+    """One-time cleanup of test artifacts pushed during E2E verification sweeps."""
+    from app.db import SessionLocal
+    from app.models import Feed, User, Incident, Indicator, Hunt
+    from sqlalchemy import delete, or_, select
+    db = SessionLocal()
+    try:
+        # feeds
+        for feed in db.execute(select(Feed).where(or_(Feed.name.like('%E2E%'), Feed.name.like('%e2e%')))).scalars().all():
+            db.delete(feed)
+        # users
+        for user in db.execute(select(User).where(or_(User.email.like('e2e-%'), User.name.like('%E2E%')))).scalars().all():
+            db.delete(user)
+        # incidents
+        for inc in db.execute(select(Incident).where(or_(Incident.title.like('E2E%'), Incident.title.like('Escalation: %'), Incident.title.like('Retest incident%')))).scalars().all():
+            db.delete(inc)
+        # indicators
+        for ind in db.execute(select(Indicator).where(or_(Indicator.value.like('e2e-%'), Indicator.value.like('live-alert-%'), Indicator.value.like('live-broadcast%')))).scalars().all():
+            db.delete(ind)
+        # hunts
+        for hunt in db.execute(select(Hunt).where(Hunt.name.like('%sweep test%'))).scalars().all():
+            db.delete(hunt)
+        db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()

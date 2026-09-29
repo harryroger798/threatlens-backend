@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -41,7 +41,7 @@ def _client_ip(request: Request) -> str | None:
 
 
 @router.post("/login", response_model=LoginOut)
-def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
+def login(body: LoginIn, request: Request, response: Response, db: Session = Depends(get_db)):
     user = db.execute(select(User).where(User.email == body.email.lower())).scalars().first()
     ip = _client_ip(request)
     corr = None
@@ -93,6 +93,14 @@ def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
     audit_record(db, actor_id=user.id, actor_email=user.email, action="auth.login",
                  details={"role": user.role}, ip=ip)
     db.commit()
+    response.set_cookie(
+        key="threatlens_refresh",
+        value=token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=settings.REFRESH_TOKEN_DAYS * 24 * 3600,
+    )
     return LoginOut(access_token=access, expires_in=ttl, user=_user_dict(user))
 
 
@@ -104,7 +112,7 @@ def _jti(token: str) -> str:
 
 
 @router.post("/refresh")
-def refresh(request: Request, db: Session = Depends(get_db)):
+def refresh(request: Request, response: Response, db: Session = Depends(get_db)):
     token = request.cookies.get(REFRESH_COOKIE)
     if not token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail={"error_code": "unauthenticated", "message": "No refresh cookie"})
@@ -130,6 +138,14 @@ def refresh(request: Request, db: Session = Depends(get_db)):
     db.add(new_rt)
     audit_record(db, actor_id=user.id, actor_email=user.email, action="auth.token_refreshed", details={})
     db.commit()
+    response.set_cookie(
+        key="threatlens_refresh",
+        value=new_refresh,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=settings.REFRESH_TOKEN_DAYS * 24 * 3600,
+    )
     return {"access_token": access, "token_type": "bearer", "expires_in": ttl}
 
 
